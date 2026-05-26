@@ -1,122 +1,80 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useEffect, useState } from 'react';
+import axios from 'axios';
 
-function App() {
-  const [count, setCount] = useState(0)
+const API_KEY = import.meta.env.VITE_LASTFM_API_KEY;
+const USERNAME = import.meta.env.VITE_LASTFM_USERNAME;
 
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+function groupByDate(tracks) {
+  const counts = {}; // hash
 
-      <div className="ticks"></div>
+  tracks.forEach(track => {
+    if (!track.date) return; // skip currently playing track
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+    const date = new Date(track.date.uts * 1000);
+    const key = date.toISOString().split('T')[0]; // "2024-01-15"
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+    counts[key] = (counts[key] || 0) + 1;
+  });
+
+  return counts;
 }
 
-export default App
+
+function App() {
+    const [dayCounts, setDayCounts] = useState({});
+
+    useEffect(() => {
+        const fetchTracks = async () => {
+            const firstRes = await axios.get('https://ws.audioscrobbler.com/2.0/', {
+                params: {
+                    method: 'user.getRecentTracks',
+                    user: USERNAME,
+                    api_key: API_KEY,
+                    format: 'json',
+                    limit: 200,
+                    page: 1,
+                }
+            });
+
+            const totalPages = parseInt(firstRes.data.recenttracks['@attr'].totalPages);
+            console.log('total pages:', totalPages);
+          
+            let tracks = [...firstRes.data.recenttracks.track];
+
+            const pageRequests = [];
+            for (let page = 2; page <= totalPages; page++) {
+              pageRequests.push(
+                axios.get('https://ws.audioscrobbler.com/2.0/', {
+                    params: {
+                        method: 'user.getRecentTracks',
+                        user: USERNAME,
+                        api_key: API_KEY,
+                        format: 'json',
+                        limit: 200,
+                        page: page,
+                    }
+                })
+              );
+            }
+
+          const responses = await Promise.all(pageRequests);
+          responses.forEach(res => {
+              tracks = [...tracks, ...res.data.recenttracks.track];
+          });
+
+          const counts = groupByDate(tracks);
+          console.log(counts);
+          setDayCounts(counts);
+        };
+
+
+
+        fetchTracks();
+    }, []);
+
+    return <div>{Object.entries(dayCounts).map(([date, count]) => (
+        <div key={date}>{date}: {count} scrobbles</div>
+    ))}</div>;
+}
+
+export default App;
